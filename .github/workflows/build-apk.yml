@@ -1,17 +1,56 @@
-- name: Build APK
+name: Build AlgoBotPro APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create assets
         run: |
-          export ANDROID_HOME=$HOME/android-sdk
-          export ANDROID_NDK_HOME=$HOME/android-sdk/ndk/25.2.9519653
-          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.0:$PATH
+          mkdir -p assets
+          python3 -c "
+          import struct, zlib
+          def png(w, h, r, g, b):
+            def ck(t, d):
+              c = zlib.crc32(t + d) & 0xffffffff
+              return struct.pack('>I', len(d)) + t + d + struct.pack('>I', c)
+            raw = b''.join(b'\x00' + bytes([r, g, b] * w) for _ in range(h))
+            ihdr = struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)
+            return (b'\x89PNG\r\n\x1a\n'
+                    + ck(b'IHDR', ihdr)
+                    + ck(b'IDAT', zlib.compress(raw))
+                    + ck(b'IEND', b''))
+          open('assets/icon.png', 'wb').write(png(512, 512, 124, 58, 237))
+          open('assets/presplash.png', 'wb').write(png(512, 512, 15, 23, 42))
+          print('Assets created successfully!')
+          "
 
-          # Tell buildozer where SDK/NDK are
-          sed -i "s|#android.sdk_path =|android.sdk_path = $HOME/android-sdk|" buildozer.spec
-          sed -i "s|#android.ndk_path =|android.ndk_path = $ANDROID_NDK_HOME|" buildozer.spec
+      - name: Build APK using Buildozer Docker
+        uses: ArtemSBulgakov/buildozer-action@v1
+        id: buildozer
+        with:
+          command: android debug
+          workdir: .
+          buildozer_version: stable
 
-          # Add paths if not present
-          grep -q "android.sdk_path" buildozer.spec || echo "android.sdk_path = $HOME/android-sdk" >> buildozer.spec
-          grep -q "android.ndk_path" buildozer.spec || echo "android.ndk_path = $ANDROID_NDK_HOME" >> buildozer.spec
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlgoBotPro-APK
+          path: ${{ steps.buildozer.outputs.filename }}
+          retention-days: 30
 
-          buildozer android debug 2>&1
-        env:
-          ANDROID_HOME: ${{ env.HOME }}/android-sdk
+      - name: Show APK info
+        run: |
+          echo "================================"
+          echo "✅ Build Complete!"
+          echo "APK: ${{ steps.buildozer.outputs.filename }}"
+          echo "================================"
