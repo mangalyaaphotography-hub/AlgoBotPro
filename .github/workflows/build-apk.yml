@@ -1,63 +1,48 @@
 name: Build AlgoBotPro APK
 
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install system dependencies
+      - name: Install deps
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y git zip unzip openjdk-17-jdk \
-            build-essential libssl-dev libffi-dev \
-            libsqlite3-dev python3-dev python3-pip \
-            autoconf libtool pkg-config zlib1g-dev \
-            libncurses5-dev libncursesw5-dev libtinfo5 \
-            cmake
-          pip install --upgrade pip
-          pip install buildozer cython==0.29.33 pillow
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            git zip unzip openjdk-17-jdk \
+            build-essential libssl-dev \
+            libffi-dev python3-dev \
+            autoconf libtool pkg-config \
+            zlib1g-dev cmake
+          pip install buildozer cython==0.29.33
 
-      - name: Create assets
+      - name: Make assets
         run: |
           mkdir -p assets
           python3 -c "
-          try:
-            from PIL import Image, ImageDraw
-            img = Image.new('RGBA', (512,512), (124,58,237,255))
-            img.save('assets/icon.png')
-            splash = Image.new('RGB', (512,512), (15,23,42))
-            splash.save('assets/presplash.png')
-          except:
-            import struct, zlib
-            def make_png(w,h,r,g,b):
-              def chunk(t,d):
-                import zlib
-                c=zlib.crc32(t+d)&0xffffffff
-                return struct.pack('>I',len(d))+t+d+struct.pack('>I',c)
-              raw=b''.join(b'\x00'+bytes([r,g,b]*w) for _ in range(h))
-              return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b'')
-            open('assets/icon.png','wb').write(make_png(512,512,124,58,237))
-            open('assets/presplash.png','wb').write(make_png(512,512,15,23,42))
+          import struct, zlib
+          def png(w,h,r,g,b):
+            def ck(t,d):
+              c=zlib.crc32(t+d)&0xffffffff
+              return struct.pack('>I',len(d))+t+d+struct.pack('>I',c)
+            raw=b''.join(b'\x00'+bytes([r,g,b]*w) for _ in range(h))
+            return b'\x89PNG\r\n\x1a\n'+ck(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+ck(b'IDAT',zlib.compress(raw))+ck(b'IEND',b'')
+          open('assets/icon.png','wb').write(png(512,512,124,58,237))
+          open('assets/presplash.png','wb').write(png(512,512,15,23,42))
           "
 
       - name: Build APK
-        run: |
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
-          buildozer -v android debug 2>&1 | tail -200
+        run: buildozer android debug
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
 
