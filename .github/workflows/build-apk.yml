@@ -15,24 +15,49 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install deps
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install system deps
         run: |
           sudo apt-get update -y
           sudo apt-get install -y \
             git zip unzip \
-            openjdk-17-jdk \
             build-essential \
-            libssl-dev \
-            libffi-dev \
+            libssl-dev libffi-dev \
             python3-dev \
-            autoconf \
-            libtool \
-            pkg-config \
-            zlib1g-dev \
-            cmake \
-            libunwind-dev
+            autoconf libtool \
+            pkg-config zlib1g-dev \
+            cmake libunwind-dev
           pip install --upgrade pip setuptools wheel
           pip install buildozer cython==0.29.33
+
+      - name: Setup Android SDK + accept licenses
+        run: |
+          # Install Android SDK cmdline tools
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          cd $HOME/android-sdk/cmdline-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q commandlinetools-linux-11076708_latest.zip
+          mv cmdline-tools latest
+
+          export ANDROID_HOME=$HOME/android-sdk
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+
+          # Accept all licenses
+          yes | sdkmanager --licenses || true
+
+          # Install required packages
+          sdkmanager "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.0" \
+            "ndk;25.2.9519653"
+
+        env:
+          ANDROID_HOME: ${{ env.HOME }}/android-sdk
 
       - name: Create assets
         run: |
@@ -47,13 +72,16 @@ jobs:
             return b'\x89PNG\r\n\x1a\n'+ck(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+ck(b'IDAT',zlib.compress(raw))+ck(b'IEND',b'')
           open('assets/icon.png','wb').write(png(512,512,124,58,237))
           open('assets/presplash.png','wb').write(png(512,512,15,23,42))
-          print('Assets OK')
           "
 
       - name: Build APK
-        run: buildozer android debug
+        run: |
+          export ANDROID_HOME=$HOME/android-sdk
+          export ANDROID_NDK_HOME=$HOME/android-sdk/ndk/25.2.9519653
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.0:$PATH
+          buildozer android debug 2>&1
         env:
-          JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_HOME: ${{ env.HOME }}/android-sdk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
