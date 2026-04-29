@@ -1,91 +1,17 @@
-name: Build AlgoBotPro APK
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Install system deps
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            git zip unzip \
-            build-essential \
-            libssl-dev libffi-dev \
-            python3-dev \
-            autoconf libtool \
-            pkg-config zlib1g-dev \
-            cmake libunwind-dev
-          pip install --upgrade pip setuptools wheel
-          pip install buildozer cython==0.29.33
-
-      - name: Setup Android SDK + accept licenses
-        run: |
-          # Install Android SDK cmdline tools
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          cd $HOME/android-sdk/cmdline-tools
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          unzip -q commandlinetools-linux-11076708_latest.zip
-          mv cmdline-tools latest
-
-          export ANDROID_HOME=$HOME/android-sdk
-          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
-
-          # Accept all licenses
-          yes | sdkmanager --licenses || true
-
-          # Install required packages
-          sdkmanager "platform-tools" \
-            "platforms;android-33" \
-            "build-tools;33.0.0" \
-            "ndk;25.2.9519653"
-
-        env:
-          ANDROID_HOME: ${{ env.HOME }}/android-sdk
-
-      - name: Create assets
-        run: |
-          mkdir -p assets
-          python3 -c "
-          import struct,zlib
-          def png(w,h,r,g,b):
-            def ck(t,d):
-              c=zlib.crc32(t+d)&0xffffffff
-              return struct.pack('>I',len(d))+t+d+struct.pack('>I',c)
-            raw=b''.join(b'\x00'+bytes([r,g,b]*w) for _ in range(h))
-            return b'\x89PNG\r\n\x1a\n'+ck(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+ck(b'IDAT',zlib.compress(raw))+ck(b'IEND',b'')
-          open('assets/icon.png','wb').write(png(512,512,124,58,237))
-          open('assets/presplash.png','wb').write(png(512,512,15,23,42))
-          "
-
-      - name: Build APK
+- name: Build APK
         run: |
           export ANDROID_HOME=$HOME/android-sdk
           export ANDROID_NDK_HOME=$HOME/android-sdk/ndk/25.2.9519653
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/build-tools/33.0.0:$PATH
+
+          # Tell buildozer where SDK/NDK are
+          sed -i "s|#android.sdk_path =|android.sdk_path = $HOME/android-sdk|" buildozer.spec
+          sed -i "s|#android.ndk_path =|android.ndk_path = $ANDROID_NDK_HOME|" buildozer.spec
+
+          # Add paths if not present
+          grep -q "android.sdk_path" buildozer.spec || echo "android.sdk_path = $HOME/android-sdk" >> buildozer.spec
+          grep -q "android.ndk_path" buildozer.spec || echo "android.ndk_path = $ANDROID_NDK_HOME" >> buildozer.spec
+
           buildozer android debug 2>&1
         env:
           ANDROID_HOME: ${{ env.HOME }}/android-sdk
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: AlgoBotPro-APK
-          path: bin/*.apk
-          retention-days: 30
