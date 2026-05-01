@@ -35,8 +35,17 @@ jobs:
           print('Assets OK!')
           "
 
-      - name: Accept Android licenses
-        run: yes | sdkmanager --licenses || true
+      - name: Accept ALL Android licenses
+        run: |
+          yes | sdkmanager --licenses || true
+          yes | sdkmanager "build-tools;33.0.2" || true
+          yes | sdkmanager "build-tools;34.0.0" || true
+          yes | sdkmanager "build-tools;35.0.0" || true
+          yes | sdkmanager "build-tools;36.0.0" || true
+          yes | sdkmanager "build-tools;37.0.0" || true
+          yes | sdkmanager "platforms;android-33" || true
+          yes | sdkmanager "platforms;android-34" || true
+          yes | sdkmanager --licenses || true
 
       - name: Build APK
         run: buildozer android debug
