@@ -1,0 +1,114 @@
+name: Build AlgoBotPro APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            git zip unzip \
+            build-essential \
+            libssl-dev libffi-dev \
+            python3-dev \
+            autoconf libtool \
+            pkg-config zlib1g-dev \
+            cmake libunwind-dev
+          pip install --upgrade pip setuptools wheel
+          pip install buildozer cython==0.29.33
+
+      - name: Setup Android SDK + NDK + aidl
+        run: |
+          # Download Android commandline tools
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          cd /tmp
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdtools.zip
+          unzip -q cmdtools.zip
+          mv cmdline-tools $HOME/android-sdk/cmdline-tools/latest
+
+          export ANDROID_HOME=$HOME/android-sdk
+          export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
+
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+
+          # Accept all licenses
+          yes | sdkmanager --licenses || true
+
+          # Install required SDK components
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-33" \
+            "build-tools;33.0.2" \
+            "ndk;25.2.9519653"
+
+          # Accept again
+          yes | sdkmanager --licenses || true
+
+          # Verify aidl
+          AIDL=$ANDROID_HOME/build-tools/33.0.2/aidl
+          echo "aidl exists: $(ls -la $AIDL)"
+          echo "$ANDROID_HOME/build-tools/33.0.2" >> $GITHUB_PATH
+
+          echo "NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
+
+      - name: Create assets
+        run: |
+          mkdir -p assets
+          python3 -c "
+          import struct, zlib
+          def png(w, h, r, g, b):
+            def ck(t, d):
+              c = zlib.crc32(t + d) & 0xffffffff
+              return struct.pack('>I', len(d)) + t + d + struct.pack('>I', c)
+            raw = b''.join(b'\x00' + bytes([r, g, b] * w) for _ in range(h))
+            return (b'\x89PNG\r\n\x1a\n'
+                    + ck(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+                    + ck(b'IDAT', zlib.compress(raw))
+                    + ck(b'IEND', b''))
+          open('assets/icon.png', 'wb').write(png(512, 512, 124, 58, 237))
+          open('assets/presplash.png', 'wb').write(png(512, 512, 15, 23, 42))
+          print('Assets OK!')
+          "
+
+      - name: Build APK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "NDK_HOME=$NDK_HOME"
+          which aidl && echo "aidl OK" || echo "aidl missing"
+          buildozer android debug 2>&1
+        env:
+          BUILDOZER_WARN_ON_ROOT: "0"
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.NDK_HOME }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlgoBotPro-APK
+          path: bin/*.apk
+          retention-days: 30
