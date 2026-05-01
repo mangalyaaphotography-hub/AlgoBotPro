@@ -35,20 +35,54 @@ jobs:
           print('Assets OK!')
           "
 
-      - name: Accept ALL Android licenses
+      - name: Install build-tools and aidl
         run: |
-          yes | sdkmanager --licenses || true
-          yes | sdkmanager "build-tools;33.0.2" || true
-          yes | sdkmanager "build-tools;34.0.0" || true
-          yes | sdkmanager "build-tools;35.0.0" || true
-          yes | sdkmanager "build-tools;36.0.0" || true
-          yes | sdkmanager "build-tools;37.0.0" || true
-          yes | sdkmanager "platforms;android-33" || true
-          yes | sdkmanager "platforms;android-34" || true
+          # Accept all licenses first
           yes | sdkmanager --licenses || true
 
+          # Install specific build-tools with aidl
+          yes | sdkmanager "build-tools;33.0.2" || true
+          yes | sdkmanager "platforms;android-33" || true
+          yes | sdkmanager "platform-tools" || true
+
+          # Accept licenses again after install
+          yes | sdkmanager --licenses || true
+
+          # Find and symlink aidl to PATH
+          AIDL_PATH=$(find /opt -name "aidl" 2>/dev/null | head -1)
+          if [ -z "$AIDL_PATH" ]; then
+            AIDL_PATH=$(find /root -name "aidl" 2>/dev/null | head -1)
+          fi
+          if [ -z "$AIDL_PATH" ]; then
+            AIDL_PATH=$(find /home -name "aidl" 2>/dev/null | head -1)
+          fi
+          echo "Found aidl at: $AIDL_PATH"
+          if [ -n "$AIDL_PATH" ]; then
+            ln -sf "$AIDL_PATH" /usr/local/bin/aidl
+            echo "aidl linked to /usr/local/bin/aidl"
+          fi
+
+          # Verify aidl
+          which aidl && echo "aidl OK" || echo "aidl not in PATH"
+
+          # Show build-tools contents
+          find / -name "build-tools" -type d 2>/dev/null | head -5
+
       - name: Build APK
-        run: buildozer android debug
+        run: |
+          # Set Android SDK paths
+          export ANDROID_SDK_ROOT=$(find /opt /root /home -name "android-sdk" -type d 2>/dev/null | head -1)
+          if [ -z "$ANDROID_SDK_ROOT" ]; then
+            export ANDROID_SDK_ROOT=$(dirname $(dirname $(which sdkmanager)) 2>/dev/null) || true
+          fi
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          # Add build-tools to PATH
+          BT_PATH=$(find "$ANDROID_SDK_ROOT" -name "aidl" 2>/dev/null | head -1 | xargs dirname 2>/dev/null)
+          echo "Build tools path: $BT_PATH"
+          export PATH="$BT_PATH:$PATH"
+
+          buildozer android debug
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
 
